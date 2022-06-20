@@ -1,8 +1,11 @@
 #Explore the data
+sessionInfo()
 library(tidyverse)
+install.packages("htmltools")
 summary(df)
 
 str(df)
+dim(df)
 
 ## Transform dates into an appropriate format
 df$date <- lubridate::ymd(df$date)
@@ -15,6 +18,7 @@ df %>% group_by(date) %>%
   geom_histogram(color="black", fill="white", binwidth = 1000) +
   labs(title="Total number of steps taken each day") +
   theme_classic()
+ggsave("his_steps.png", width = 6, height = 4)
 
 ## Statistics number of steps taken each day
 df %>% group_by(date) %>%
@@ -22,16 +26,17 @@ df %>% group_by(date) %>%
     summarise(
              mean = mean(total_steps, na.rm = TRUE),
              median = median(total_steps, na.rm = TRUE)
-    )
+    ) -> df_ds
 
 ## Time series plot
-df %>% group_by(date) %>%
+df %>% group_by(interval) %>%
   summarise(total_steps = mean(steps, na.rm = TRUE) ) %>% 
   
-  ggplot(aes(y=total_steps, x=date)) +
-  geom_line() +
+  ggplot(aes(y=total_steps, x=interval)) +
+  geom_line(type = "l") +
   labs(title="Average number of steps taken") +
   theme_classic()
+ggsave("ts_steps1.png", width = 6, height = 4)
 
 ## Interval with the maximum number of steps
 df %>% group_by(interval) %>%
@@ -55,6 +60,7 @@ df_im %>% group_by(date) %>%
   geom_histogram(color="black", fill="white", binwidth = 1000) +
   labs(title="Total number of steps taken each day") +
   theme_classic()
+ggsave("his_steps_im.png", width = 6, height = 4)
 
 ## Panel plot Weekdays vs. Weekends
 df_im %>% mutate(wday = lubridate::wday(date, label=TRUE),
@@ -62,10 +68,10 @@ df_im %>% mutate(wday = lubridate::wday(date, label=TRUE),
   group_by(interval, dow) %>%
   summarise(int_steps = mean(steps, na.rm = TRUE) ) %>%
   
-  ggplot(aes(y = int_steps)) +
-  geom_boxplot(varwidth = TRUE, outlier.colour = "red", outlier.shape = 1) +
+  ggplot(aes(y = int_steps, x = interval)) +
+  geom_line(type = "l") +
   facet_grid(cols = vars(dow))  +
   labs(title="Total number of steps taken each day") +
   theme_classic()
+ggsave("ts_steps_im.png", width = 8, height = 4)
   
-

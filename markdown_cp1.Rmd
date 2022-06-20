@@ -32,13 +32,15 @@ result <- df
 
 ## Load and process the data
 
+First, the data set was loaded and processed.
+
 ```{r warning=FALSE, message= FALSE}
 library(tidyverse)
 
 df <- dowload_data()
 df$date <- lubridate::ymd(df$date)
 
-kable(head(df))
+knitr::kable(head(df, 10), align = c('c'), caption = "First ten rows of the data set" )
 
 ```
 
@@ -137,7 +139,7 @@ The mean of the total number of steps taken per day is **`r round(df_ds_im$mean,
 
 It is also analyzed the difference in the activity pattern between weekdays and weekends, creating a new variable in the data set that allows to create individual plots for each period.
 
-```{r}
+```{r warning=FALSE, message= FALSE}
 ## Panel plot Weekdays vs. Weekends
 df_im %>% mutate(wday = lubridate::wday(date, label=TRUE),
                  dow = ifelse(wday %in% c("Sat", "Sun"), "Weekends", "Weekdays")  ) %>%
