@@ -1,0 +1,153 @@
+---
+title: "Activity monitoring data - CP1"
+author: "Oscar Nieto G"
+date: '2022-06-20'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 6, fig.height= 4, fig.align = 'center', warning = FALSE)
+```
+
+```{r include=FALSE}
+#load the data
+dowload_data <- function() {
+
+#data Url
+Url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+
+temp <- tempfile()
+download.file(Url, temp)
+
+unzip(temp, "activity.csv")
+df <- read.csv("activity.csv")
+unlink(temp)
+
+#output Dataframe
+result <- df
+
+}
+
+```
+
+## Load and process the data
+
+```{r warning=FALSE, message= FALSE}
+library(tidyverse)
+
+df <- dowload_data()
+df$date <- lubridate::ymd(df$date)
+
+kable(head(df))
+
+```
+
+## Number of steps taken per day
+
+The distribution of the total number of steps by day is described on the following histogram:
+
+```{r}
+
+## Histogram of steps
+df %>% group_by(date) %>%
+  summarise(total_steps = sum(steps, na.rm = TRUE)) %>%
+  
+  ggplot(aes(x=total_steps)) +
+  geom_histogram(color="black", fill="white", binwidth = 1000) +
+  labs(title="Total number of steps taken each day") +
+  theme_classic()
+
+```
+
+```{r}
+
+df %>% group_by(date) %>%
+  summarise(total_steps = sum(steps, na.rm = TRUE) ) %>% ungroup() %>%
+    summarise(
+             mean = mean(total_steps, na.rm = TRUE),
+             median = median(total_steps, na.rm = TRUE)
+    ) -> df_ds
+
+```
+
+The mean of the total number of steps taken per day is **`r round(df_ds$mean, 0)`**, while the median is **`r df_ds$median`**.
+
+## Average daily activity pattern
+
+The daily activity pattern of the average number of steps taken, averaged across all days is presented on the following graph.
+
+```{r, warning=FALSE}
+
+## Time series plot
+df %>% group_by(interval) %>%
+  summarise(total_steps = mean(steps, na.rm = TRUE) ) %>% 
+  
+  ggplot(aes(y=total_steps, x=interval)) +
+  geom_line(type = "l") +
+  labs(title="Average number of steps taken") +
+  theme_classic()
+
+df %>% group_by(interval) %>%
+  summarise(int_steps = mean(steps, na.rm = TRUE) ) %>%
+  arrange(desc(int_steps)) %>%
+  head(1) -> df_max
+
+```
+
+On average, the 5-minute interval with the maximum number of steps is **`r df_max$interval`** with **`r round(df_max$int_steps, 2)`** steps.
+
+## Imputing missing values
+
+```{r}
+
+df %>%
+  group_by(interval) %>%
+  mutate(steps = replace_na(steps,  median(steps, na.rm = TRUE) ) ) -> df_im
+
+```
+
+The presence of missing days may introduce bias into some calculations or summaries of the data. For that reason, it is important to fill this missing values, according to the data that is available.
+
+In this case, the number of missing values (coded as NA) is **`r sum(is.na(df$steps))`**.
+
+Since we have many values per 5-minute interval, we can use the median of the measures values to imputing the missing values on the same 5-minutes interval. We can see that by filling this values, there are some changes on the distribution of the number of steps, increasing some the number of observations in some lower range of the number of steps taken by day, increasing the mean but maintaining the median.
+
+```{r}
+## Histogram of steps imputed
+df_im %>% group_by(date) %>%
+  summarise(total_steps = sum(steps, na.rm = TRUE)) %>%
+  
+  ggplot(aes(x=total_steps)) +
+  geom_histogram(color="black", fill="white", binwidth = 1000) +
+  labs(title="Total number of steps taken each day") +
+  theme_classic()
+
+df_im %>% group_by(date) %>%
+  summarise(total_steps = sum(steps, na.rm = TRUE) ) %>% ungroup() %>%
+    summarise(
+             mean = mean(total_steps, na.rm = TRUE),
+             median = median(total_steps, na.rm = TRUE)
+    ) -> df_ds_im
+
+```
+
+The mean of the total number of steps taken per day is **`r round(df_ds_im$mean, 0)`**, while the median is **`r df_ds_im$median`**.
+
+## Activity patterns between weekdays and weekends
+
+It is also analyzed the difference in the activity pattern between weekdays and weekends, creating a new variable in the data set that allows to create individual plots for each period.
+
+```{r}
+## Panel plot Weekdays vs. Weekends
+df_im %>% mutate(wday = lubridate::wday(date, label=TRUE),
+                 dow = ifelse(wday %in% c("Sat", "Sun"), "Weekends", "Weekdays")  ) %>%
+  group_by(interval, dow) %>%
+  summarise(int_steps = mean(steps, na.rm = TRUE) ) %>%
+  
+  ggplot(aes(y = int_steps, x = interval)) +
+  geom_line(type = "l") +
+  facet_grid(rows = vars(dow))  +
+  labs(title="Total number of steps taken each day") +
+  theme_classic()
+
+```
