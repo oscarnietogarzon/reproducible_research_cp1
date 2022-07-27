@@ -1,0 +1,259 @@
+---
+title: "Storm data U.S. NOAA - CP2"
+author: "Oscar NG"
+date: '2022-07-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, fig.width = 6, fig.height= 4, fig.align = 'center', warning = FALSE, message = FALSE)
+
+```
+
+The data was locally downloaded in the .bz2 data type. This file was unziped locally and then loaded into RStudio with the following code. 
+
+```{r include=TRUE, echo=TRUE}
+
+read.csv("data/repdata_data_StormData.csv.bz2") -> raw_data
+
+```
+
+## **Synopsis**
+
+On this report an initial Exploratory Data Analysis of the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database was performed. The data is available from this [link](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2), being compressed via the bzip2 algorithm.
+
+The data was loaded and transformed using different R libraries, in order to identify and communicate important patterns and trends. This with main purpose of analyze the population and economic impacts that this extreme weather events have across the U.S.
+
+It was found that the data set has observations between 1950 to 2011, with a clear increase in the number of total events each year. Also, there was a great number of different event types, with a great number of references that were repeated or incorrect, surely referencing the same event type.
+
+With respect to the population health, the Tornadoes were by far the event with the largest number of total injuries and fatalities. These events were distributed mainly in some states, like Texas or Alabama. On the other hand, the Hurricanes and Typhoons caused the largest economic consequences, both in property and crop damage. This weather events were concentrated mainly in coastal states, like Florida or North Carolina.
+
+
+## **Load and initial process of the data**
+
+First, the data set was loaded and processed. The raw data contains a total of 37 columns with more than 900 thousand observations.
+
+```{r warning=FALSE, message= FALSE}
+
+str(raw_data)
+
+```
+
+By looking at the basic structure it is clear that there are columns with the wrong data type, and some variables that have empty observations, which may be corrected by cleaning the data and selecting the columns with data of interest.
+
+In this case the columns will be:
+
+-   BGN_DATE : Date of the beginning of the event
+-   STATE : State
+-   EVTYPE : Type of event
+-   FATALITIES: Number of fatalities per event
+-   INJURIES : Number of injuries per event
+-   PROPDMG : Property damage
+-   CROPDMG : Crop damage
+
+However, it is not clear the units in which the damage are quantified. So, it is necessary to use other column as a reference, in order to have comparable magnitudes. For that reason, PROPDMGEXP and CROPDMGEXP are also included on the clean data set.
+
+```{r warning=FALSE, message= FALSE}
+library(tidyverse)
+
+cols_of_interest = c("BGN_DATE", "STATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+
+raw_data %>% select(cols_of_interest) %>% mutate(BGN_DATE = lubridate::mdy_hms(BGN_DATE)) %>%
+  filter(STATE != "XX") -> clean_data
+
+str(clean_data)
+```
+
+We can see that the number of columns were reduced. In the next steps, the property and crop damage will be cleaned and transformed according to the reference columns.
+
+### **Unit processing**
+
+First, it is necessary to observe the different values that are registered to define a strategy to transform the values.
+
+```{r include = TRUE}
+
+sapply(clean_data[c("PROPDMGEXP", "CROPDMGEXP")], function(x) unique(x))
+
+```
+
+There seems that there are the values of the columns indicate a relationship between the magnitude and the categories. So, the PROPDMG and CROPDMG needs to be transformed according to this values.
+
+Some of this seems to be non valid, specifically the special characters like "-" or "+", these observations will not be taken into account. The other characters can be related with the order of magnitude of each observation.
+
+In addition, some event type categories seems to refer to the same event with different values. For that reason, some categories values need to be aggregated.
+
+```{r include = TRUE}
+
+`%!in%` <- Negate(`%in%`)
+
+clean_data %>%
+  filter(  PROPDMGEXP %!in% c("-", "+", "?"),  CROPDMGEXP %!in% c("?")  ) %>%
+  mutate(PROPDMG_V = case_when(
+    PROPDMGEXP == "" ~ PROPDMG*1,
+    PROPDMGEXP == "0" ~ PROPDMG*1,
+    PROPDMGEXP == "1" ~ PROPDMG*10,
+    PROPDMGEXP == "2" ~ PROPDMG*100,
+    PROPDMGEXP == "3" ~ PROPDMG*1000,
+    PROPDMGEXP == "4" ~ PROPDMG*10000,
+    PROPDMGEXP == "5" ~ PROPDMG*100000,
+    PROPDMGEXP == "6" ~ PROPDMG*1000000,
+    PROPDMGEXP == "7" ~ PROPDMG*10000000,
+    str_detect(PROPDMGEXP, "h|H") ~ CROPDMG*1000,
+    PROPDMGEXP == "K" ~ PROPDMG*1000,
+    PROPDMGEXP == "M" ~ PROPDMG*1000000,
+    PROPDMGEXP == "B" ~ CROPDMG*1000000000
+  ),
+  CROPDMG_V = case_when(
+    CROPDMGEXP == "" ~ CROPDMG*1,
+    CROPDMGEXP == "0" ~ CROPDMG*1,
+    CROPDMGEXP == "2" ~ CROPDMG*100,
+    str_detect(CROPDMGEXP, "k|K") ~ CROPDMG*1000,
+    str_detect(CROPDMGEXP, "m|M") ~  CROPDMG*1000000,
+    CROPDMGEXP == "B" ~ CROPDMG*1000000000
+  ),
+  EVTYPE_mod = case_when(
+  str_detect(EVTYPE, "MARINE TSTM WIND|THUNDERSTORM WIND|MARINE THUNDERSTORM WIND") ~ "MARINE TSTM WIND",
+  str_detect(EVTYPE, "THUNDERSTORM WIND|THUNDERSTORM WINDS|THUNDERSTORMW WINDS")  ~ "TSTM WIND",
+  TRUE ~ EVTYPE
+  )) -> df
+
+knitr::kable(head(df, 5), align = c('c'), caption = "First ten rows of the data set" )
+```
+
+Also, due to the great number of different event types that are recorded in the data set, it is necessary to filter the data according to the type of events that had the most impact. So, we visualize this distribution in the type of events a tree map is presented.
+
+```{r include = TRUE}
+library(treemapify)
+
+df %>% group_by(EVTYPE_mod)%>%
+  summarise(n = n()) %>% ungroup() %>%
+  arrange(desc(n)) %>%
+  
+  ggplot(aes(area = n, fill = EVTYPE_mod, label = paste(EVTYPE_mod, n, sep = "\n"))) +
+  geom_treemap() +
+  geom_treemap_text(colour = "black",
+                    place = "centre",
+                    size = 8,
+                    grow = TRUE) +
+  theme(legend.position="none") +
+  labs(title = "Proportion of event type")
+
+```
+
+## **Analysis**
+### **Population Health**
+
+For the analysis, we start by looking how the number of register events have changed by year. 
+
+With the past of time the number of register events had increased, being Hail, Tornado and Thunderstorm Wind the events with the major number of occurrences. Also, since mid 1990s, there was an increase in the number of event types registered.
+
+Following this, an analysis of the impact of these weather events with respect to the population health across the U.S. We can observe that the tornadoes are the event that most impact had on the health of the population, with the most number of injuries and fatalities. Also, the number of injuries tend to be greater than the number of fatalities across all the weather events. 
+
+```{r include = TRUE}
+
+df %>%
+  group_by(EVTYPE_mod) %>%
+  summarize(n_FAT = sum(FATALITIES), n_INJ = sum(INJURIES)) %>%
+  arrange(desc(n_FAT), desc(n_INJ)) %>% head(5) %>%
+  reshape2::melt(id.vars = c("EVTYPE_mod")) %>%
+  
+  ggplot(aes(x = EVTYPE_mod, y= value, fill = variable)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_brewer(name ="Impact", palette="Reds", labels = c("Fatalities", "Injuries")) +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = c(0.1, 0.85),
+        legend.key = element_rect(colour = "transparent", fill = "transparent")) +
+  labs(x = "Event type", title = "Number of fatalities and injuries by event type") -> one_p1
+
+```
+
+According to this graph, we can start to explore the distribution of the injuries caused by tornadoes across the different U.S. states. So, the states with the most harmful effect on the population health is:
+
+* TX: Texas
+* AL: Alabama
+* MS: Mississippi
+
+```{r include = TRUE, fig.width=12, fig.height=5.5}
+
+df %>% 
+  filter(EVTYPE_mod == "TORNADO") %>%
+  group_by(STATE) %>% 
+  summarize(n_INJ = sum(INJURIES)) %>%
+  
+  ggplot(aes(area = n_INJ, fill = STATE, label = paste(STATE, n_INJ, sep = "\n"))) +
+  geom_treemap() +
+  geom_treemap_text(colour = "black",
+                    place = "centre",
+                    size = 8,
+                    grow = TRUE) +
+  theme(legend.position="none") +
+  labs(title = "Proportion of injuries caused by tornadoes") -> one_p2
+
+library(gridExtra)
+
+grid.arrange(one_p1, one_p2, ncol=2, nrow = 1)
+
+```
+
+### **Economic Consequences**
+
+Similarly, we can study the impact of the different events on the property and crops across the U.S., selecting the top five type of events with the most economic consequences.
+
+```{r include = TRUE}
+
+df %>%
+  group_by(EVTYPE_mod) %>%
+  summarize(n_PROP = sum(PROPDMG_V), n_CROP = sum(CROPDMG_V)) %>%
+  arrange(desc(n_PROP), desc(n_CROP)) %>% head(5) %>%
+  reshape2::melt(id.vars = c("EVTYPE_mod")) %>%
+  
+  ggplot(aes(x = EVTYPE_mod, y = value, fill = variable)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_brewer(name ="Impact", palette="Reds", labels = c("Property", "Crop")) +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = c(0.1, 0.85),
+        legend.key = element_rect(colour = "transparent", fill = "transparent")) +
+  labs(x = "Event type", title = "Property and crop damage by event type") -> two_p1
+
+```
+
+In this case, both Hurricanes and Typhoons are the events that described the largest economic consequences. There is a great difference between these events and the others, with a large magnitude of difference. Also, there is a large difference between the property and the crop damage. Those factors indicate that the coastal states should have more property impact than the other ones.
+
+```{r include = TRUE, fig.width=12, fig.height=5.5}
+
+df %>% 
+  filter(EVTYPE_mod %in% c("HURRICANE", "HURRICANE/TYPHOON") ) %>%
+  group_by(STATE) %>% 
+  summarize(n_INJ = sum(INJURIES)) %>%
+  
+  ggplot(aes(area = n_INJ, fill = STATE, label = paste(STATE, n_INJ, sep = "\n"))) +
+  geom_treemap() +
+  geom_treemap_text(colour = "black",
+                    place = "centre",
+                    size = 8,
+                    grow = TRUE) +
+  theme(legend.position="none") +
+  labs(title = "Proportion of property damage caused by Hurricanes and Typhoones") -> two_p2
+
+
+grid.arrange(two_p1, two_p2, ncol=2, nrow = 1 )
+
+```
+
+According to this graph, we can start to explore the distribution of the property damage caused by Hurricanes and Typhoons across the different U.S. states. So, the states with the most economic consequences are:
+
+* FL: Florida
+* NC: North Carolina
+* PR: Puerto Rico
+
+We can observe that on this data set, Puerto Rico has been included as a U.S. state.
+
+## **Results**
+
+1. The Tornadoes are the weather event that have the most impact on the population health in the U.S.
+2. The Hurricanes and Typhoons are the weather event that have the most economic consequences in the U.S.
+3. There is a concentration of the impact of both Hurricanes and Tornadoes, at specific states according to their geographic location.
+4. Although the Thunderstorm winds are the event type with the highest occurrence, the impact caused by this type of event is not the most important.
